@@ -1,0 +1,2469 @@
+---
+title: "SERIES DE TIEMPO"
+author: "Análisis de Algoritmos"
+date: "Abril 2024"
+output:
+  prettydoc::html_pretty:
+    theme: architect
+    highlight: github
+    float: true
+    toc: true
+---
+```{r, eval=T, include=F}
+library(ggplot2)
+```
+
+```{r, eval=T, include=F}
+library(readxl)
+ruta_archivo <- "C:/Users/usuarioa/Downloads/BASE ESTUDIANTES SISTEMAS V5.xlsx"
+datos <- read_excel(ruta_archivo)
+```
+
+```{r, eval=T, include=F}
+library(ggplot2)
+library(dplyr)
+```
+# **1). Limpieza de Datos**
+```{r, }
+
+library(dplyr)
+
+datos <- datos %>%
+  filter(`PLAN 4064` == 'SI') %>%
+  mutate(APROBARON = ifelse(CALIFICACIÓN == 'SP', 1, 0),
+         NO_APROBARON = ifelse(CALIFICACIÓN == 'NS', 1, 0)) %>%
+  mutate(PRERREQUISITOS = ifelse(!is.na(PREREQUISITO1_COD) | !is.na(PREREQUISITO2_COD), 1, 0)) %>%
+  mutate(TOTAL_MATRICULADOS = n())  # Calcula el total de matriculados en el conjunto de datos
+
+#Eliminar columnas no necesarias
+
+datos <- select(datos, -c(DEPARTAMENTO_DEDICACION,`CRÉDITOS TEÓRICOS`,PREREQUISITO1_COD,PREREQUISITO1_ASIGNATURA,
+                          PREREQUISITO2_ASIGNATURA,`NOTA DEFINITIVA PREREQUISITO 1`,`NOTA DEFINITIVA PREREQUISITO 2`,GRUPO,
+                          DESCRIPCIÓN, `DEPARTAMENTO PROFESOR`,`DOCUMENTO DOCENTE`, `PRIMER APELLIDO DOCENTE`,`SEGUNDO APELLIDO DOCENTE`,
+                          `NOMBRE DOCENTE`,`PRIMER APELLIDO`, `SEGUNDO APELLIDO`, NOMBRE,GÉNERO, NIVEL, `TIPO INGRESO`,SUBACCESO,
+                          `NOTAS PRIMER CORTE`, `FALLAS PRIMER CORTE`, `NOTAS SEGUNDO CORTE`,`FALLAS SEGUNDO CORTE`,
+                          `PROMEDIO PARCIAL`, `NOTAS EXAMEN`,`FALLAS EXAMEN`,`PORCENTAJE FALLAS`,`PERDIDA FALLAS`,`ASIGNATURA ANULADA`,`PROMEDIO ACUMULADO`))
+
+#FILTRO POR ASIGNATURA
+
+library(dplyr)
+library(stringr)
+
+AALG <- datos %>%
+  filter(CÓDIGO == 43390852) %>%
+  mutate(PERIODO = case_when(
+    str_sub(PERIODO, 6, 7) == "01" ~ paste(str_sub(PERIODO, 1, 4), "01"),
+    str_sub(PERIODO, 6, 7) == "02" ~ paste(str_sub(PERIODO, 1, 4), "02"),
+    TRUE ~ NA_character_  # Añade un valor por defecto en caso de que ninguna de las condiciones anteriores se cumpla
+  ))
+```
+
+```{r, }
+tabla_total_AALG  <- AALG %>%
+  group_by(PERIODO)%>%
+  summarise(TOTAL_MATRICULADOS=n())
+print(tabla_total_AALG)
+```
+
+
+
+# **2).Visualización de la Serie**
+
+```{r, echo=FALSE}
+ggplot(tabla_total_AALG , aes(x = as.factor(PERIODO), y = TOTAL_MATRICULADOS)) +
+  geom_line(group = 1) +
+  geom_point()
+  labs(title = "Evolución del Total de Matriculados por Semestre",
+       x = "Semestre",
+       y = "Total de Matriculados") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  
+
+
+```
+
+
+# **3).Descomposición de la Serie**
+```{r, echo=FALSE}
+#Verificación Datos
+library(forecast)
+ts_datos <- ts(tabla_total_AALG$TOTAL_MATRICULADOS, frequency = 2, start = c(2020, 1))
+```
+```{r, echo=FALSE}
+
+#Descomponer serie
+
+descomp <- decompose(ts_datos, type = "multiplicative")
+
+plot(descomp)
+```
+
+# **4).Prueba del modelo**
+
+# **Modelo Holt Winters**
+
+```{r}
+library(forecast)
+
+hw_model <- HoltWinters(ts_datos, seasonal = "multiplicative")
+
+summary(hw_model)
+
+```
+```{r}
+
+```
+
+```{r}
+# Hacer pronósticos con el modelo de Holt-Winters
+
+hw_prediccion <- forecast(hw_model, h = 1)
+
+# Graficar los pronósticos
+plot(hw_prediccion)
+
+# Revisar los residuos
+residuos_hw <- residuals(hw_model)
+
+# Graficar los residuos
+plot(residuos_hw)
+abline(h = 0, col = 'red')
+
+hist(residuos_hw, breaks = 'Sturges', freq = FALSE)
+lines(density(residuos_hw), col = 'blue')
+
+# Realizar una prueba de autocorrelación en los residuos para buscar patrones no explicados
+Box.test(residuos_hw, lag = length(residuos_hw)/2, type = "Ljung-Box")
+
+
+# Q-Q plot para evaluar la normalidad de los residuos
+qqnorm(residuos_hw)
+qqline(residuos_hw, col = 'red')
+    
+```
+```{r}
+accuracy(hw_prediccion )
+```
+
+```{r}
+print(round(hw_prediccion$mean))
+```
+
+
+
+# **SARIMA**
+
+```{r}
+library(forecast)
+
+
+# Ajustar el modelo SARIMA automáticamente
+sarima_model <- auto.arima(ts_datos, seasonal = TRUE, stepwise = FALSE, approximation = FALSE)
+
+# Ver el resumen del modelo
+summary(sarima_model)
+
+# Hacer pronósticos con el modelo SARIMA
+sarima_forecast <- forecast(sarima_model, h = 1) # Puedes cambiar 'h' por el número de periodos que quieres predecir
+plot(sarima_forecast)
+
+# Revisar los residuos
+residuos_sarima <- residuals(sarima_model)
+plot(residuos_sarima)
+abline(h = 0, col = 'red')
+
+# Verificar normalidad y ausencia de autocorrelación
+hist(residuos_sarima, breaks = 'Sturges', freq = FALSE)
+lines(density(residuos_sarima), col = 'blue')
+
+qqnorm(residuos_sarima)
+qqline(residuos_sarima, col = 'red')
+
+Box.test(residuos_sarima, lag = length(residuos_sarima)/2, type = "Ljung-Box")
+```
+```{r}
+print(sarima_forecast$mean)
+```
+
+
+---
+title: "SERIES DE TIEMPO"
+author: "Arquitectura de Computadores"
+date: "Abril 2024"
+output:
+  prettydoc::html_pretty:
+    theme: architect
+    highlight: github
+    float: true
+    toc: true
+---
+```{r, eval=T, include=F}
+library(ggplot2)
+```
+
+```{r, eval=T, include=F}
+library(readxl)
+ruta_archivo <- "C:/Users/usuarioa/Downloads/BASE ESTUDIANTES SISTEMAS V5.xlsx"
+datos <- read_excel(ruta_archivo)
+```
+
+```{r, eval=T, include=F}
+library(ggplot2)
+library(dplyr)
+```
+# **1). Limpieza de Datos**
+```{r, }
+
+library(dplyr)
+
+datos <- datos %>%
+  filter(`PLAN 4064` == 'SI') %>%
+  mutate(APROBARON = ifelse(CALIFICACIÓN == 'SP', 1, 0),
+         NO_APROBARON = ifelse(CALIFICACIÓN == 'NS', 1, 0)) %>%
+  mutate(PRERREQUISITOS = ifelse(!is.na(PREREQUISITO1_COD) | !is.na(PREREQUISITO2_COD), 1, 0)) %>%
+  mutate(TOTAL_MATRICULADOS = n())  # Calcula el total de matriculados en el conjunto de datos
+
+#Eliminar columnas no necesarias
+
+datos <- select(datos, -c(DEPARTAMENTO_DEDICACION,`CRÉDITOS TEÓRICOS`,PREREQUISITO1_COD,PREREQUISITO1_ASIGNATURA,
+                          PREREQUISITO2_ASIGNATURA,`NOTA DEFINITIVA PREREQUISITO 1`,`NOTA DEFINITIVA PREREQUISITO 2`,GRUPO,
+                          DESCRIPCIÓN, `DEPARTAMENTO PROFESOR`,`DOCUMENTO DOCENTE`, `PRIMER APELLIDO DOCENTE`,`SEGUNDO APELLIDO DOCENTE`,
+                          `NOMBRE DOCENTE`,`PRIMER APELLIDO`, `SEGUNDO APELLIDO`, NOMBRE,GÉNERO, NIVEL, `TIPO INGRESO`,SUBACCESO,
+                          `NOTAS PRIMER CORTE`, `FALLAS PRIMER CORTE`, `NOTAS SEGUNDO CORTE`,`FALLAS SEGUNDO CORTE`,
+                          `PROMEDIO PARCIAL`, `NOTAS EXAMEN`,`FALLAS EXAMEN`,`PORCENTAJE FALLAS`,`PERDIDA FALLAS`,`ASIGNATURA ANULADA`,`PROMEDIO ACUMULADO`))
+
+#FILTRO POR ASIGNATURA
+
+library(dplyr)
+library(stringr)
+
+APC <- datos %>%
+  filter(CÓDIGO == 43390846) %>%
+  mutate(PERIODO = case_when(
+    str_sub(PERIODO, 6, 7) == "01" ~ paste(str_sub(PERIODO, 1, 4), "01"),
+    str_sub(PERIODO, 6, 7) == "02" ~ paste(str_sub(PERIODO, 1, 4), "02"),
+    TRUE ~ NA_character_  # Añade un valor por defecto en caso de que ninguna de las condiciones anteriores se cumpla
+  ))
+```
+
+```{r, }
+tabla_total_APC  <- APC %>%
+  group_by(PERIODO)%>%
+  summarise(TOTAL_MATRICULADOS=n())
+print(tabla_total_APC)
+```
+
+
+
+# **2).Visualización de la Serie**
+
+```{r, echo=FALSE}
+ggplot(tabla_total_APC , aes(x = as.factor(PERIODO), y = TOTAL_MATRICULADOS)) +
+  geom_line(group = 1) +
+  geom_point()
+  labs(title = "Evolución del Total de Matriculados por Semestre",
+       x = "Semestre",
+       y = "Total de Matriculados") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  
+
+
+```
+
+
+# **3).Descomposición de la Serie**
+```{r, echo=FALSE}
+#Verificación Datos
+library(forecast)
+ts_datos <- ts(tabla_total_APC$TOTAL_MATRICULADOS, frequency = 2, start = c(2018, 2))
+```
+```{r, echo=FALSE}
+
+#Descomponer serie
+
+descomp <- decompose(ts_datos, type = "multiplicative")
+
+plot(descomp)
+```
+
+# **4).Prueba del modelo**
+
+# **Modelo Holt Winters**
+
+```{r}
+library(forecast)
+
+hw_model <- HoltWinters(ts_datos, seasonal = "multiplicative")
+
+summary(hw_model)
+
+```
+```{r}
+
+```
+
+```{r}
+# Hacer pronósticos con el modelo de Holt-Winters
+
+hw_prediccion <- forecast(hw_model, h = 1)
+
+# Graficar los pronósticos
+plot(hw_prediccion)
+
+# Revisar los residuos
+residuos_hw <- residuals(hw_model)
+
+# Graficar los residuos
+plot(residuos_hw)
+abline(h = 0, col = 'red')
+
+hist(residuos_hw, breaks = 'Sturges', freq = FALSE)
+lines(density(residuos_hw), col = 'blue')
+
+# Realizar una prueba de autocorrelación en los residuos para buscar patrones no explicados
+Box.test(residuos_hw, lag = length(residuos_hw)/2, type = "Ljung-Box")
+
+
+# Q-Q plot para evaluar la normalidad de los residuos
+qqnorm(residuos_hw)
+qqline(residuos_hw, col = 'red')
+    
+```
+```{r}
+accuracy(hw_prediccion )
+```
+
+```{r}
+print(round(hw_prediccion$mean))
+```
+
+
+
+# **SARIMA**
+
+```{r}
+library(forecast)
+
+
+# Ajustar el modelo SARIMA automáticamente
+sarima_model <- auto.arima(ts_datos, seasonal = TRUE, stepwise = FALSE, approximation = FALSE)
+
+# Ver el resumen del modelo
+summary(sarima_model)
+
+# Hacer pronósticos con el modelo SARIMA
+sarima_forecast <- forecast(sarima_model, h = 1) # Puedes cambiar 'h' por el número de periodos que quieres predecir
+plot(sarima_forecast)
+
+# Revisar los residuos
+residuos_sarima <- residuals(sarima_model)
+plot(residuos_sarima)
+abline(h = 0, col = 'red')
+
+# Verificar normalidad y ausencia de autocorrelación
+hist(residuos_sarima, breaks = 'Sturges', freq = FALSE)
+lines(density(residuos_sarima), col = 'blue')
+
+qqnorm(residuos_sarima)
+qqline(residuos_sarima, col = 'red')
+
+Box.test(residuos_sarima, lag = length(residuos_sarima)/2, type = "Ljung-Box")
+```
+```{r}
+print(round(sarima_forecast$mean))
+
+```
+
+
+---
+title: "SERIES DE TIEMPO"
+author: "Análisis de Algoritmos"
+date: "Abril 2024"
+output:
+  prettydoc::html_pretty:
+    theme: architect
+    highlight: github
+    float: true
+    toc: true
+---
+```{r, eval=T, include=F}
+library(ggplot2)
+```
+
+```{r, eval=T, include=F}
+library(readxl)
+ruta_archivo <- "C:/Users/usuarioa/Downloads/BASE ESTUDIANTES SISTEMAS V5.xlsx"
+datos <- read_excel(ruta_archivo)
+```
+
+```{r, eval=T, include=F}
+library(ggplot2)
+library(dplyr)
+```
+# **1). Limpieza de Datos**
+```{r, }
+
+library(dplyr)
+
+datos <- datos %>%
+  filter(`PLAN 4064` == 'SI') %>%
+  mutate(APROBARON = ifelse(CALIFICACIÓN == 'SP', 1, 0),
+         NO_APROBARON = ifelse(CALIFICACIÓN == 'NS', 1, 0)) %>%
+  mutate(PRERREQUISITOS = ifelse(!is.na(PREREQUISITO1_COD) | !is.na(PREREQUISITO2_COD), 1, 0)) %>%
+  mutate(TOTAL_MATRICULADOS = n())  # Calcula el total de matriculados en el conjunto de datos
+
+#Eliminar columnas no necesarias
+
+datos <- select(datos, -c(DEPARTAMENTO_DEDICACION,`CRÉDITOS TEÓRICOS`,PREREQUISITO1_COD,PREREQUISITO1_ASIGNATURA,
+                          PREREQUISITO2_ASIGNATURA,`NOTA DEFINITIVA PREREQUISITO 1`,`NOTA DEFINITIVA PREREQUISITO 2`,GRUPO,
+                          DESCRIPCIÓN, `DEPARTAMENTO PROFESOR`,`DOCUMENTO DOCENTE`, `PRIMER APELLIDO DOCENTE`,`SEGUNDO APELLIDO DOCENTE`,
+                          `NOMBRE DOCENTE`,`PRIMER APELLIDO`, `SEGUNDO APELLIDO`, NOMBRE,GÉNERO, NIVEL, `TIPO INGRESO`,SUBACCESO,
+                          `NOTAS PRIMER CORTE`, `FALLAS PRIMER CORTE`, `NOTAS SEGUNDO CORTE`,`FALLAS SEGUNDO CORTE`,
+                          `PROMEDIO PARCIAL`, `NOTAS EXAMEN`,`FALLAS EXAMEN`,`PORCENTAJE FALLAS`,`PERDIDA FALLAS`,`ASIGNATURA ANULADA`,`PROMEDIO ACUMULADO`))
+
+#FILTRO POR ASIGNATURA
+
+library(dplyr)
+library(stringr)
+
+AS <- datos %>%
+  filter(CÓDIGO == 43390856) %>%
+  mutate(PERIODO = case_when(
+    str_sub(PERIODO, 6, 7) == "01" ~ paste(str_sub(PERIODO, 1, 4), "01"),
+    str_sub(PERIODO, 6, 7) == "02" ~ paste(str_sub(PERIODO, 1, 4), "02")
+  ))
+
+```
+
+
+```{r, }
+tabla_total_AS  <- AS %>%
+  group_by(PERIODO)%>%
+  summarise(TOTAL_MATRICULADOS=n())
+print(tabla_total_AS)
+```
+
+
+
+# **2).Visualización de la Serie**
+
+```{r, echo=FALSE}
+ggplot(tabla_total_AS , aes(x = as.factor(PERIODO), y = TOTAL_MATRICULADOS)) +
+  geom_line(group = 1) +
+  geom_point()
+  labs(title = "Evolución del Total de Matriculados por Semestre",
+       x = "Semestre",
+       y = "Total de Matriculados") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  
+
+
+```
+
+
+# **3).Descomposición de la Serie**
+```{r, echo=FALSE}
+#Verificación Datos
+library(forecast)
+ts_datos <- ts(tabla_total_AS$TOTAL_MATRICULADOS, frequency = 2, start = c(2020, 1))
+```
+```{r, echo=FALSE}
+
+#Descomponer serie
+
+descomp <- decompose(ts_datos, type = "multiplicative")
+
+plot(descomp)
+```
+
+# **4).Prueba del modelo**
+
+# **Modelo Holt Winters**
+
+```{r}
+library(forecast)
+
+hw_model <- HoltWinters(ts_datos, seasonal = "multiplicative")
+
+summary(hw_model)
+
+```
+```{r}
+
+```
+
+```{r}
+# Hacer pronósticos con el modelo de Holt-Winters
+
+hw_prediccion <- forecast(hw_model, h = 1)
+
+# Graficar los pronósticos
+plot(hw_prediccion)
+
+# Revisar los residuos
+residuos_hw <- residuals(hw_model)
+
+# Graficar los residuos
+plot(residuos_hw)
+abline(h = 0, col = 'red')
+
+hist(residuos_hw, breaks = 'Sturges', freq = FALSE)
+lines(density(residuos_hw), col = 'blue')
+
+# Realizar una prueba de autocorrelación en los residuos para buscar patrones no explicados
+Box.test(residuos_hw, lag = length(residuos_hw)/2, type = "Ljung-Box")
+
+
+# Q-Q plot para evaluar la normalidad de los residuos
+qqnorm(residuos_hw)
+qqline(residuos_hw, col = 'red')
+    
+```
+```{r}
+accuracy(hw_prediccion )
+```
+
+```{r}
+print(round(hw_prediccion$mean))
+```
+
+
+
+# **SARIMA**
+
+```{r}
+library(forecast)
+
+
+# Ajustar el modelo SARIMA automáticamente
+sarima_model <- auto.arima(ts_datos, seasonal = TRUE, stepwise = FALSE, approximation = FALSE)
+
+# Ver el resumen del modelo
+summary(sarima_model)
+
+# Hacer pronósticos con el modelo SARIMA
+sarima_forecast <- forecast(sarima_model, h = 1) # Puedes cambiar 'h' por el número de periodos que quieres predecir
+plot(sarima_forecast)
+
+# Revisar los residuos
+residuos_sarima <- residuals(sarima_model)
+plot(residuos_sarima)
+abline(h = 0, col = 'red')
+
+# Verificar normalidad y ausencia de autocorrelación
+hist(residuos_sarima, breaks = 'Sturges', freq = FALSE)
+lines(density(residuos_sarima), col = 'blue')
+
+qqnorm(residuos_sarima)
+qqline(residuos_sarima, col = 'red')
+
+Box.test(residuos_sarima, lag = length(residuos_sarima)/2, type = "Ljung-Box")
+```
+```{r}
+print(round(sarima_forecast$mean))
+```
+
+
+---
+title: "SERIES DE TIEMPO"
+author: "Análisis de Algoritmos"
+date: "Abril 2024"
+output:
+  prettydoc::html_pretty:
+    theme: architect
+    highlight: github
+    float: true
+    toc: true
+---
+```{r, eval=T, include=F}
+library(ggplot2)
+```
+
+```{r, eval=T, include=F}
+library(readxl)
+ruta_archivo <- "C:/Users/usuarioa/Downloads/BASE ESTUDIANTES SISTEMAS V5.xlsx"
+datos <- read_excel(ruta_archivo)
+```
+
+```{r, eval=T, include=F}
+library(ggplot2)
+library(dplyr)
+```
+# **1). Limpieza de Datos**
+```{r, }
+
+library(dplyr)
+
+datos <- datos %>%
+  filter(`PLAN 4064` == 'SI') %>%
+  mutate(APROBARON = ifelse(CALIFICACIÓN == 'SP', 1, 0),
+         NO_APROBARON = ifelse(CALIFICACIÓN == 'NS', 1, 0)) %>%
+  mutate(PRERREQUISITOS = ifelse(!is.na(PREREQUISITO1_COD) | !is.na(PREREQUISITO2_COD), 1, 0)) %>%
+  mutate(TOTAL_MATRICULADOS = n())  # Calcula el total de matriculados en el conjunto de datos
+
+#Eliminar columnas no necesarias
+
+datos <- select(datos, -c(DEPARTAMENTO_DEDICACION,`CRÉDITOS TEÓRICOS`,PREREQUISITO1_COD,PREREQUISITO1_ASIGNATURA,
+                          PREREQUISITO2_ASIGNATURA,`NOTA DEFINITIVA PREREQUISITO 1`,`NOTA DEFINITIVA PREREQUISITO 2`,GRUPO,
+                          DESCRIPCIÓN, `DEPARTAMENTO PROFESOR`,`DOCUMENTO DOCENTE`, `PRIMER APELLIDO DOCENTE`,`SEGUNDO APELLIDO DOCENTE`,
+                          `NOMBRE DOCENTE`,`PRIMER APELLIDO`, `SEGUNDO APELLIDO`, NOMBRE,GÉNERO, NIVEL, `TIPO INGRESO`,SUBACCESO,
+                          `NOTAS PRIMER CORTE`, `FALLAS PRIMER CORTE`, `NOTAS SEGUNDO CORTE`,`FALLAS SEGUNDO CORTE`,
+                          `PROMEDIO PARCIAL`, `NOTAS EXAMEN`,`FALLAS EXAMEN`,`PORCENTAJE FALLAS`,`PERDIDA FALLAS`,`ASIGNATURA ANULADA`,`PROMEDIO ACUMULADO`))
+
+#FILTRO POR ASIGNATURA
+
+library(dplyr)
+library(stringr)
+
+AS <- datos %>%
+  filter(CÓDIGO == 43390856) %>%
+  mutate(PERIODO = case_when(
+    str_sub(PERIODO, 6, 7) == "01" ~ paste(str_sub(PERIODO, 1, 4), "01"),
+    str_sub(PERIODO, 6, 7) == "02" ~ paste(str_sub(PERIODO, 1, 4), "02")
+  ))
+
+```
+
+
+```{r, }
+tabla_total_AS  <- AS %>%
+  group_by(PERIODO)%>%
+  summarise(TOTAL_MATRICULADOS=n())
+print(tabla_total_AS)
+```
+
+
+
+# **2).Visualización de la Serie**
+
+```{r, echo=FALSE}
+ggplot(tabla_total_AS , aes(x = as.factor(PERIODO), y = TOTAL_MATRICULADOS)) +
+  geom_line(group = 1) +
+  geom_point()
+  labs(title = "Evolución del Total de Matriculados por Semestre",
+       x = "Semestre",
+       y = "Total de Matriculados") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  
+
+
+```
+
+
+# **3).Descomposición de la Serie**
+```{r, echo=FALSE}
+#Verificación Datos
+library(forecast)
+ts_datos <- ts(tabla_total_AS$TOTAL_MATRICULADOS, frequency = 2, start = c(2020, 1))
+```
+```{r, echo=FALSE}
+
+#Descomponer serie
+
+descomp <- decompose(ts_datos, type = "multiplicative")
+
+plot(descomp)
+```
+
+# **4).Prueba del modelo**
+
+# **Modelo Holt Winters**
+
+```{r}
+library(forecast)
+
+hw_model <- HoltWinters(ts_datos, seasonal = "multiplicative")
+
+summary(hw_model)
+
+```
+```{r}
+
+```
+
+```{r}
+# Hacer pronósticos con el modelo de Holt-Winters
+
+hw_prediccion <- forecast(hw_model, h = 1)
+
+# Graficar los pronósticos
+plot(hw_prediccion)
+
+# Revisar los residuos
+residuos_hw <- residuals(hw_model)
+
+# Graficar los residuos
+plot(residuos_hw)
+abline(h = 0, col = 'red')
+
+hist(residuos_hw, breaks = 'Sturges', freq = FALSE)
+lines(density(residuos_hw), col = 'blue')
+
+# Realizar una prueba de autocorrelación en los residuos para buscar patrones no explicados
+Box.test(residuos_hw, lag = length(residuos_hw)/2, type = "Ljung-Box")
+
+
+# Q-Q plot para evaluar la normalidad de los residuos
+qqnorm(residuos_hw)
+qqline(residuos_hw, col = 'red')
+    
+```
+```{r}
+accuracy(hw_prediccion )
+```
+
+```{r}
+print(round(hw_prediccion$mean))
+```
+
+
+
+# **SARIMA**
+
+```{r}
+library(forecast)
+
+
+# Ajustar el modelo SARIMA automáticamente
+sarima_model <- auto.arima(ts_datos, seasonal = TRUE, stepwise = FALSE, approximation = FALSE)
+
+# Ver el resumen del modelo
+summary(sarima_model)
+
+# Hacer pronósticos con el modelo SARIMA
+sarima_forecast <- forecast(sarima_model, h = 1) # Puedes cambiar 'h' por el número de periodos que quieres predecir
+plot(sarima_forecast)
+
+# Revisar los residuos
+residuos_sarima <- residuals(sarima_model)
+plot(residuos_sarima)
+abline(h = 0, col = 'red')
+
+# Verificar normalidad y ausencia de autocorrelación
+hist(residuos_sarima, breaks = 'Sturges', freq = FALSE)
+lines(density(residuos_sarima), col = 'blue')
+
+qqnorm(residuos_sarima)
+qqline(residuos_sarima, col = 'red')
+
+Box.test(residuos_sarima, lag = length(residuos_sarima)/2, type = "Ljung-Box")
+```
+```{r}
+print(round(sarima_forecast$mean))
+```
+
+
+---
+title: "SERIES DE TIEMPO"
+author: "Arquitectra de Sistemas 2"
+date: "Abril 2024"
+output:
+  prettydoc::html_pretty:
+    theme: architect
+    highlight: github
+    float: true
+    toc: true
+---
+```{r, eval=T, include=F}
+library(ggplot2)
+```
+
+```{r, eval=T, include=F}
+library(readxl)
+ruta_archivo <- "C:/Users/usuarioa/Downloads/BASE ESTUDIANTES SISTEMAS V5.xlsx"
+datos <- read_excel(ruta_archivo)
+```
+
+```{r, eval=T, include=F}
+library(ggplot2)
+library(dplyr)
+```
+# **1). Limpieza de Datos**
+```{r, }
+
+library(dplyr)
+
+datos <- datos %>%
+  filter(`PLAN 4064` == 'SI') %>%
+  mutate(APROBARON = ifelse(CALIFICACIÓN == 'SP', 1, 0),
+         NO_APROBARON = ifelse(CALIFICACIÓN == 'NS', 1, 0)) %>%
+  mutate(PRERREQUISITOS = ifelse(!is.na(PREREQUISITO1_COD) | !is.na(PREREQUISITO2_COD), 1, 0)) %>%
+  mutate(TOTAL_MATRICULADOS = n())  # Calcula el total de matriculados en el conjunto de datos
+
+#Eliminar columnas no necesarias
+
+datos <- select(datos, -c(DEPARTAMENTO_DEDICACION,`CRÉDITOS TEÓRICOS`,PREREQUISITO1_COD,PREREQUISITO1_ASIGNATURA,
+                          PREREQUISITO2_ASIGNATURA,`NOTA DEFINITIVA PREREQUISITO 1`,`NOTA DEFINITIVA PREREQUISITO 2`,GRUPO,
+                          DESCRIPCIÓN, `DEPARTAMENTO PROFESOR`,`DOCUMENTO DOCENTE`, `PRIMER APELLIDO DOCENTE`,`SEGUNDO APELLIDO DOCENTE`,
+                          `NOMBRE DOCENTE`,`PRIMER APELLIDO`, `SEGUNDO APELLIDO`, NOMBRE,GÉNERO, NIVEL, `TIPO INGRESO`,SUBACCESO,
+                          `NOTAS PRIMER CORTE`, `FALLAS PRIMER CORTE`, `NOTAS SEGUNDO CORTE`,`FALLAS SEGUNDO CORTE`,
+                          `PROMEDIO PARCIAL`, `NOTAS EXAMEN`,`FALLAS EXAMEN`,`PORCENTAJE FALLAS`,`PERDIDA FALLAS`,`ASIGNATURA ANULADA`,`PROMEDIO ACUMULADO`))
+
+#FILTRO POR ASIGNATURA
+
+library(dplyr)
+library(stringr)
+
+AS2 <- datos %>%
+  filter(CÓDIGO == 43390859) %>%
+  mutate(PERIODO = case_when(
+    str_sub(PERIODO, 6, 7) == "01" ~ paste(str_sub(PERIODO, 1, 4), "01"),
+    str_sub(PERIODO, 6, 7) == "02" ~ paste(str_sub(PERIODO, 1, 4), "02")
+  ))
+
+```
+
+
+```{r, }
+tabla_total_AS2  <- AS2 %>%
+  group_by(PERIODO)%>%
+  summarise(TOTAL_MATRICULADOS=n())
+print(tabla_total_AS2)
+```
+
+
+
+# **2).Visualización de la Serie**
+
+```{r, echo=FALSE}
+ggplot(tabla_total_AS2 , aes(x = as.factor(PERIODO), y = TOTAL_MATRICULADOS)) +
+  geom_line(group = 1) +
+  geom_point()
+  labs(title = "Evolución del Total de Matriculados por Semestre",
+       x = "Semestre",
+       y = "Total de Matriculados") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  
+
+
+```
+
+
+# **3).Descomposición de la Serie**
+```{r, echo=FALSE}
+#Verificación Datos
+library(forecast)
+ts_datos <- ts(tabla_total_AS2$TOTAL_MATRICULADOS, frequency = 2, start = c(2020, 2))
+```
+```{r, echo=FALSE}
+
+#Descomponer serie
+
+descomp <- decompose(ts_datos, type = "multiplicative")
+
+plot(descomp)
+```
+
+# **4).Prueba del modelo**
+
+# **Modelo Holt Winters**
+
+```{r}
+library(forecast)
+
+hw_model <- HoltWinters(ts_datos, seasonal = "multiplicative")
+
+summary(hw_model)
+
+```
+```{r}
+
+```
+
+```{r}
+# Hacer pronósticos con el modelo de Holt-Winters
+
+hw_prediccion <- forecast(hw_model, h = 1)
+
+# Graficar los pronósticos
+plot(hw_prediccion)
+
+# Revisar los residuos
+residuos_hw <- residuals(hw_model)
+
+# Graficar los residuos
+plot(residuos_hw)
+abline(h = 0, col = 'red')
+
+hist(residuos_hw, breaks = 'Sturges', freq = FALSE)
+lines(density(residuos_hw), col = 'blue')
+
+# Realizar una prueba de autocorrelación en los residuos para buscar patrones no explicados
+Box.test(residuos_hw, lag = length(residuos_hw)/2, type = "Ljung-Box")
+
+
+# Q-Q plot para evaluar la normalidad de los residuos
+qqnorm(residuos_hw)
+qqline(residuos_hw, col = 'red')
+    
+```
+```{r}
+accuracy(hw_prediccion )
+```
+
+```{r}
+print(round(hw_prediccion$mean))
+```
+
+
+
+# **SARIMA**
+
+```{r}
+library(forecast)
+
+
+# Ajustar el modelo SARIMA automáticamente
+sarima_model <- auto.arima(ts_datos, seasonal = TRUE, stepwise = FALSE, approximation = FALSE)
+
+# Ver el resumen del modelo
+summary(sarima_model)
+
+# Hacer pronósticos con el modelo SARIMA
+sarima_forecast <- forecast(sarima_model, h = 1) # Puedes cambiar 'h' por el número de periodos que quieres predecir
+plot(sarima_forecast)
+
+# Revisar los residuos
+residuos_sarima <- residuals(sarima_model)
+plot(residuos_sarima)
+abline(h = 0, col = 'red')
+
+# Verificar normalidad y ausencia de autocorrelación
+hist(residuos_sarima, breaks = 'Sturges', freq = FALSE)
+lines(density(residuos_sarima), col = 'blue')
+
+qqnorm(residuos_sarima)
+qqline(residuos_sarima, col = 'red')
+
+Box.test(residuos_sarima, lag = length(residuos_sarima)/2, type = "Ljung-Box")
+```
+```{r}
+print(round(sarima_forecast$mean))
+```
+
+
+---
+title: "SERIES DE TIEMPO"
+author: "Bases de Datos"
+date: "Abril 2024"
+output:
+  prettydoc::html_pretty:
+    theme: architect
+    highlight: github
+    float: true
+    toc: true
+---
+```{r, eval=T, include=F}
+library(ggplot2)
+```
+
+```{r, eval=T, include=F}
+library(readxl)
+ruta_archivo <- "C:/Users/usuarioa/Downloads/BASE ESTUDIANTES SISTEMAS V5.xlsx"
+datos <- read_excel(ruta_archivo)
+```
+
+```{r, eval=T, include=F}
+library(ggplot2)
+library(dplyr)
+```
+# **1). Limpieza de Datos**
+```{r, }
+
+library(dplyr)
+
+datos <- datos %>%
+  filter(`PLAN 4064` == 'SI') %>%
+  mutate(APROBARON = ifelse(CALIFICACIÓN == 'SP', 1, 0),
+         NO_APROBARON = ifelse(CALIFICACIÓN == 'NS', 1, 0)) %>%
+  mutate(PRERREQUISITOS = ifelse(!is.na(PREREQUISITO1_COD) | !is.na(PREREQUISITO2_COD), 1, 0)) %>%
+  mutate(TOTAL_MATRICULADOS = n())  # Calcula el total de matriculados en el conjunto de datos
+
+#Eliminar columnas no necesarias
+
+datos <- select(datos, -c(DEPARTAMENTO_DEDICACION,`CRÉDITOS TEÓRICOS`,PREREQUISITO1_COD,PREREQUISITO1_ASIGNATURA,
+                          PREREQUISITO2_ASIGNATURA,`NOTA DEFINITIVA PREREQUISITO 1`,`NOTA DEFINITIVA PREREQUISITO 2`,GRUPO,
+                          DESCRIPCIÓN, `DEPARTAMENTO PROFESOR`,`DOCUMENTO DOCENTE`, `PRIMER APELLIDO DOCENTE`,`SEGUNDO APELLIDO DOCENTE`,
+                          `NOMBRE DOCENTE`,`PRIMER APELLIDO`, `SEGUNDO APELLIDO`, NOMBRE,GÉNERO, NIVEL, `TIPO INGRESO`,SUBACCESO,
+                          `NOTAS PRIMER CORTE`, `FALLAS PRIMER CORTE`, `NOTAS SEGUNDO CORTE`,`FALLAS SEGUNDO CORTE`,
+                          `PROMEDIO PARCIAL`, `NOTAS EXAMEN`,`FALLAS EXAMEN`,`PORCENTAJE FALLAS`,`PERDIDA FALLAS`,`ASIGNATURA ANULADA`,`PROMEDIO ACUMULADO`))
+
+#FILTRO POR ASIGNATURA
+
+library(dplyr)
+library(stringr)
+
+BD <- datos %>%
+  filter(CÓDIGO == 43390847) %>%
+  mutate(PERIODO = case_when(
+    str_sub(PERIODO, 6, 7) == "01" ~ paste(str_sub(PERIODO, 1, 4), "01"),
+    str_sub(PERIODO, 6, 7) == "02" ~ paste(str_sub(PERIODO, 1, 4), "02")
+  ))
+
+```
+
+```{r, }
+tabla_total_BD<- BD%>%
+  group_by(PERIODO)%>%
+  summarise(TOTAL_MATRICULADOS=n())
+print(tabla_total_BD)
+```
+
+
+
+# **2).Visualización de la Serie**
+
+```{r, }
+ggplot(tabla_total_BD, aes(x = as.factor(PERIODO), y = TOTAL_MATRICULADOS)) +
+  geom_line(group = 1) +
+  geom_point()
+  labs(title = "Evolución del Total de Matriculados por Semestre",
+       x = "Semestre",
+       y = "Total de Matriculados") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  
+
+
+```
+
+
+# **3).Descomposición de la Serie**
+```{r, echo=FALSE}
+#Verificación Datos
+library(forecast)
+ts_datos <- ts(tabla_total_BD$TOTAL_MATRICULADOS, frequency = 2, start = c(2018, 2))
+```
+
+```{r, echo=FALSE}
+
+#Descomponer serie
+
+descomp <- decompose(ts_datos, type = "multiplicative")
+
+plot(descomp)
+```
+
+# **4).Prueba del modelo**
+
+# **Modelo Holt Winters**
+
+```{r}
+library(forecast)
+
+hw_model <- HoltWinters(ts_datos, seasonal = "multiplicative")
+
+summary(hw_model)
+
+```
+
+
+```{r}
+# Hacer pronósticos con el modelo de Holt-Winters
+
+hw_prediccion <- forecast(hw_model, h = 1)
+
+# Graficar los pronósticos
+plot(hw_prediccion)
+
+# Revisar los residuos
+residuos_hw <- residuals(hw_model)
+
+# Graficar los residuos
+plot(residuos_hw)
+abline(h = 0, col = 'red')
+
+hist(residuos_hw, breaks = 'Sturges', freq = FALSE)
+lines(density(residuos_hw), col = 'blue')
+
+# Realizar una prueba de autocorrelación en los residuos para buscar patrones no explicados
+Box.test(residuos_hw, lag = length(residuos_hw)/2, type = "Ljung-Box")
+
+
+# Q-Q plot para evaluar la normalidad de los residuos
+qqnorm(residuos_hw)
+qqline(residuos_hw, col = 'red')
+    
+```
+```{r}
+accuracy(hw_prediccion )
+```
+<b style = 'color : cyan; font-size: 50px;'>
+PREDICCIÓN 1</b>
+
+```{r, echo=FALSE}
+print(round(hw_prediccion$mean))
+```
+
+
+# **SARIMA**
+
+```{r}
+library(forecast)
+
+
+# Ajustar el modelo SARIMA automáticamente
+sarima_model <- auto.arima(ts_datos, seasonal = TRUE, stepwise = FALSE, approximation = FALSE)
+
+# Ver el resumen del modelo
+summary(sarima_model)
+
+# Hacer pronósticos con el modelo SARIMA
+sarima_forecast <- forecast(sarima_model, h = 1) # Puedes cambiar 'h' por el número de periodos que quieres predecir
+plot(sarima_forecast)
+
+# Revisar los residuos
+residuos_sarima <- residuals(sarima_model)
+plot(residuos_sarima)
+abline(h = 0, col = 'red')
+
+# Verificar normalidad y ausencia de autocorrelación
+hist(residuos_sarima, breaks = 'Sturges', freq = FALSE)
+lines(density(residuos_sarima), col = 'blue')
+
+qqnorm(residuos_sarima)
+qqline(residuos_sarima, col = 'red')
+
+Box.test(residuos_sarima, lag = length(residuos_sarima)/2, type = "Ljung-Box")
+```
+
+<b style = 'color : cyan; font-size: 50px;'>
+PREDICCIÓN 2</b>
+
+```{r, echo=FALSE}
+print(sarima_forecast$mean)
+```
+
+
+---
+title: "SERIES DE TIEMPO"
+author: "Ciberseguridad"
+date: "Abril 2024"
+output:
+  prettydoc::html_pretty:
+    theme: architect
+    highlight: github
+    float: true
+    toc: true
+---
+```{r, eval=T, include=F}
+library(ggplot2)
+```
+
+```{r, eval=T, include=F}
+library(readxl)
+ruta_archivo <- "C:/Users/usuarioa/Downloads/BASE ESTUDIANTES SISTEMAS V5.xlsx"
+datos <- read_excel(ruta_archivo)
+```
+
+```{r, eval=T, include=F}
+library(ggplot2)
+library(dplyr)
+```
+# **1). Limpieza de Datos**
+```{r, }
+
+library(dplyr)
+
+datos <- datos %>%
+  filter(`PLAN 4064` == 'SI') %>%
+  mutate(APROBARON = ifelse(CALIFICACIÓN == 'SP', 1, 0),
+         NO_APROBARON = ifelse(CALIFICACIÓN == 'NS', 1, 0)) %>%
+  mutate(PRERREQUISITOS = ifelse(!is.na(PREREQUISITO1_COD) | !is.na(PREREQUISITO2_COD), 1, 0)) %>%
+  mutate(TOTAL_MATRICULADOS = n())  # Calcula el total de matriculados en el conjunto de datos
+
+#Eliminar columnas no necesarias
+
+datos <- select(datos, -c(DEPARTAMENTO_DEDICACION,`CRÉDITOS TEÓRICOS`,PREREQUISITO1_COD,PREREQUISITO1_ASIGNATURA,
+                          PREREQUISITO2_ASIGNATURA,`NOTA DEFINITIVA PREREQUISITO 1`,`NOTA DEFINITIVA PREREQUISITO 2`,GRUPO,
+                          DESCRIPCIÓN, `DEPARTAMENTO PROFESOR`,`DOCUMENTO DOCENTE`, `PRIMER APELLIDO DOCENTE`,`SEGUNDO APELLIDO DOCENTE`,
+                          `NOMBRE DOCENTE`,`PRIMER APELLIDO`, `SEGUNDO APELLIDO`, NOMBRE,GÉNERO, NIVEL, `TIPO INGRESO`,SUBACCESO,
+                          `NOTAS PRIMER CORTE`, `FALLAS PRIMER CORTE`, `NOTAS SEGUNDO CORTE`,`FALLAS SEGUNDO CORTE`,
+                          `PROMEDIO PARCIAL`, `NOTAS EXAMEN`,`FALLAS EXAMEN`,`PORCENTAJE FALLAS`,`PERDIDA FALLAS`,`ASIGNATURA ANULADA`,`PROMEDIO ACUMULADO`))
+
+#FILTRO POR ASIGNATURA
+
+library(dplyr)
+library(stringr)
+
+CS <- datos %>%
+  filter(CÓDIGO == 43390863) %>%
+  mutate(PERIODO = case_when(
+    str_sub(PERIODO, 6, 7) == "01" ~ paste(str_sub(PERIODO, 1, 4), "01"),
+    str_sub(PERIODO, 6, 7) == "02" ~ paste(str_sub(PERIODO, 1, 4), "02")
+  ))
+
+```
+
+```{r, }
+tabla_total_CS<- CS%>%
+  group_by(PERIODO)%>%
+  summarise(TOTAL_MATRICULADOS=n())
+print(tabla_total_CS)
+```
+
+
+
+# **2).Visualización de la Serie**
+
+```{r, }
+ggplot(tabla_total_CS, aes(x = as.factor(PERIODO), y = TOTAL_MATRICULADOS)) +
+  geom_line(group = 1) +
+  geom_point()
+  labs(title = "Evolución del Total de Matriculados por Semestre",
+       x = "Semestre",
+       y = "Total de Matriculados") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  
+
+
+```
+
+
+# **3).Descomposición de la Serie**
+```{r, echo=FALSE}
+#Verificación Datos
+library(forecast)
+ts_datos <- ts(tabla_total_CS$TOTAL_MATRICULADOS, frequency = 2, start = c(2021, 2))
+```
+
+```{r, echo=FALSE}
+
+#Descomponer serie
+
+descomp <- decompose(ts_datos, type = "multiplicative")
+
+plot(descomp)
+```
+
+# **4).Prueba del modelo**
+
+# **Modelo Holt Winters**
+
+```{r}
+library(forecast)
+
+hw_model <- HoltWinters(ts_datos, seasonal = "multiplicative")
+
+summary(hw_model)
+
+```
+
+
+```{r}
+# Hacer pronósticos con el modelo de Holt-Winters
+
+hw_prediccion <- forecast(hw_model, h = 1)
+
+# Graficar los pronósticos
+plot(hw_prediccion)
+
+# Revisar los residuos
+residuos_hw <- residuals(hw_model)
+
+# Graficar los residuos
+plot(residuos_hw)
+abline(h = 0, col = 'red')
+
+hist(residuos_hw, breaks = 'Sturges', freq = FALSE)
+lines(density(residuos_hw), col = 'blue')
+
+# Realizar una prueba de autocorrelación en los residuos para buscar patrones no explicados
+Box.test(residuos_hw, lag = length(residuos_hw)/2, type = "Ljung-Box")
+
+
+# Q-Q plot para evaluar la normalidad de los residuos
+qqnorm(residuos_hw)
+qqline(residuos_hw, col = 'red')
+    
+```
+```{r}
+accuracy(hw_prediccion )
+```
+<b style = 'color : cyan; font-size: 50px;'>
+PREDICCIÓN 1</b>
+
+```{r, echo=FALSE}
+print(round(hw_prediccion$mean))
+```
+
+
+# **SARIMA**
+
+```{r}
+library(forecast)
+
+
+# Ajustar el modelo SARIMA automáticamente
+sarima_model <- auto.arima(ts_datos, seasonal = TRUE, stepwise = FALSE, approximation = FALSE)
+
+# Ver el resumen del modelo
+summary(sarima_model)
+
+# Hacer pronósticos con el modelo SARIMA
+sarima_forecast <- forecast(sarima_model, h = 1) # Puedes cambiar 'h' por el número de periodos que quieres predecir
+plot(sarima_forecast)
+
+# Revisar los residuos
+residuos_sarima <- residuals(sarima_model)
+plot(residuos_sarima)
+abline(h = 0, col = 'red')
+
+# Verificar normalidad y ausencia de autocorrelación
+hist(residuos_sarima, breaks = 'Sturges', freq = FALSE)
+lines(density(residuos_sarima), col = 'blue')
+
+qqnorm(residuos_sarima)
+qqline(residuos_sarima, col = 'red')
+
+Box.test(residuos_sarima, lag = length(residuos_sarima)/2, type = "Ljung-Box")
+```
+
+<b style = 'color : cyan; font-size: 50px;'>
+PREDICCIÓN 2</b>
+
+```{r, echo=FALSE}
+print(sarima_forecast$mean)
+```
+
+
+---
+title: "SERIES DE TIEMPO"
+author: "Data Analitycs"
+date: "Abril 2024"
+output:
+  prettydoc::html_pretty:
+    theme: architect
+    highlight: github
+    float: true
+    toc: true
+---
+```{r, eval=T, include=F}
+library(ggplot2)
+```
+
+```{r, eval=T, include=F}
+library(readxl)
+ruta_archivo <- "C:/Users/usuarioa/Downloads/BASE ESTUDIANTES SISTEMAS V5.xlsx"
+datos <- read_excel(ruta_archivo)
+```
+
+```{r, eval=T, include=F}
+library(ggplot2)
+library(dplyr)
+```
+# **1). Limpieza de Datos**
+```{r, }
+
+library(dplyr)
+
+datos <- datos %>%
+  filter(`PLAN 4064` == 'SI') %>%
+  mutate(APROBARON = ifelse(CALIFICACIÓN == 'SP', 1, 0),
+         NO_APROBARON = ifelse(CALIFICACIÓN == 'NS', 1, 0)) %>%
+  mutate(PRERREQUISITOS = ifelse(!is.na(PREREQUISITO1_COD) | !is.na(PREREQUISITO2_COD), 1, 0)) %>%
+  mutate(TOTAL_MATRICULADOS = n())  # Calcula el total de matriculados en el conjunto de datos
+
+#Eliminar columnas no necesarias
+
+datos <- select(datos, -c(DEPARTAMENTO_DEDICACION,`CRÉDITOS TEÓRICOS`,PREREQUISITO1_COD,PREREQUISITO1_ASIGNATURA,
+                          PREREQUISITO2_ASIGNATURA,`NOTA DEFINITIVA PREREQUISITO 1`,`NOTA DEFINITIVA PREREQUISITO 2`,GRUPO,
+                          DESCRIPCIÓN, `DEPARTAMENTO PROFESOR`,`DOCUMENTO DOCENTE`, `PRIMER APELLIDO DOCENTE`,`SEGUNDO APELLIDO DOCENTE`,
+                          `NOMBRE DOCENTE`,`PRIMER APELLIDO`, `SEGUNDO APELLIDO`, NOMBRE,GÉNERO, NIVEL, `TIPO INGRESO`,SUBACCESO,
+                          `NOTAS PRIMER CORTE`, `FALLAS PRIMER CORTE`, `NOTAS SEGUNDO CORTE`,`FALLAS SEGUNDO CORTE`,
+                          `PROMEDIO PARCIAL`, `NOTAS EXAMEN`,`FALLAS EXAMEN`,`PORCENTAJE FALLAS`,`PERDIDA FALLAS`,`ASIGNATURA ANULADA`,`PROMEDIO ACUMULADO`))
+
+#FILTRO POR ASIGNATURA
+
+library(dplyr)
+library(stringr)
+
+DA <- datos %>%
+  filter(CÓDIGO == 43390860) %>%
+  mutate(PERIODO = case_when(
+    str_sub(PERIODO, 6, 7) == "01" ~ paste(str_sub(PERIODO, 1, 4), "01"),
+    str_sub(PERIODO, 6, 7) == "02" ~ paste(str_sub(PERIODO, 1, 4), "02")
+  ))
+
+```
+
+```{r, }
+tabla_total_DA<- DA%>%
+  group_by(PERIODO)%>%
+  summarise(TOTAL_MATRICULADOS=n())
+print(tabla_total_DA)
+```
+
+
+
+# **2).Visualización de la Serie**
+
+```{r, }
+ggplot(tabla_total_DA, aes(x = as.factor(PERIODO), y = TOTAL_MATRICULADOS)) +
+  geom_line(group = 1) +
+  geom_point()
+  labs(title = "Evolución del Total de Matriculados por Semestre",
+       x = "Semestre",
+       y = "Total de Matriculados") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  
+
+
+```
+
+
+# **3).Descomposición de la Serie**
+```{r, echo=FALSE}
+#Verificación Datos
+library(forecast)
+ts_datos <- ts(tabla_total_DA$TOTAL_MATRICULADOS, frequency = 2, start = c(2021, 1))
+```
+
+```{r, echo=FALSE}
+
+#Descomponer serie
+
+descomp <- decompose(ts_datos, type = "multiplicative")
+
+plot(descomp)
+```
+
+# **4).Prueba del modelo**
+
+# **Modelo Holt Winters**
+
+```{r}
+library(forecast)
+
+hw_model <- HoltWinters(ts_datos, seasonal = "multiplicative")
+
+summary(hw_model)
+
+```
+
+
+```{r}
+# Hacer pronósticos con el modelo de Holt-Winters
+
+hw_prediccion <- forecast(hw_model, h = 1)
+
+# Graficar los pronósticos
+plot(hw_prediccion)
+
+# Revisar los residuos
+residuos_hw <- residuals(hw_model)
+
+# Graficar los residuos
+plot(residuos_hw)
+abline(h = 0, col = 'red')
+
+hist(residuos_hw, breaks = 'Sturges', freq = FALSE)
+lines(density(residuos_hw), col = 'blue')
+
+# Realizar una prueba de autocorrelación en los residuos para buscar patrones no explicados
+Box.test(residuos_hw, lag = length(residuos_hw)/2, type = "Ljung-Box")
+
+
+# Q-Q plot para evaluar la normalidad de los residuos
+qqnorm(residuos_hw)
+qqline(residuos_hw, col = 'red')
+    
+```
+```{r}
+accuracy(hw_prediccion )
+```
+<b style = 'color : cyan; font-size: 50px;'>
+PREDICCIÓN 1</b>
+
+```{r, echo=FALSE}
+print(round(hw_prediccion$mean))
+```
+
+
+# **SARIMA**
+
+```{r}
+library(forecast)
+
+
+# Ajustar el modelo SARIMA automáticamente
+sarima_model <- auto.arima(ts_datos, seasonal = TRUE, stepwise = FALSE, approximation = FALSE)
+
+# Ver el resumen del modelo
+summary(sarima_model)
+
+# Hacer pronósticos con el modelo SARIMA
+sarima_forecast <- forecast(sarima_model, h = 1) # Puedes cambiar 'h' por el número de periodos que quieres predecir
+plot(sarima_forecast)
+
+# Revisar los residuos
+residuos_sarima <- residuals(sarima_model)
+plot(residuos_sarima)
+abline(h = 0, col = 'red')
+
+# Verificar normalidad y ausencia de autocorrelación
+hist(residuos_sarima, breaks = 'Sturges', freq = FALSE)
+lines(density(residuos_sarima), col = 'blue')
+
+qqnorm(residuos_sarima)
+qqline(residuos_sarima, col = 'red')
+
+Box.test(residuos_sarima, lag = length(residuos_sarima)/2, type = "Ljung-Box")
+```
+
+<b style = 'color : cyan; font-size: 50px;'>
+PREDICCIÓN 2</b>
+
+```{r, echo=FALSE}
+print(sarima_forecast$mean)
+```
+
+
+---
+title: "SERIES DE TIEMPO"
+author: "Practica de Ingeniería 1"
+date: "Abril 2024"
+output:
+  prettydoc::html_pretty:
+    theme: architect
+    highlight: github
+    float: true
+    toc: true
+---
+```{r, eval=T, include=F}
+library(ggplot2)
+```
+
+```{r, eval=T, include=F}
+library(readxl)
+ruta_archivo <- "C:/Users/usuarioa/Downloads/BASE ESTUDIANTES SISTEMAS V5.xlsx"
+datos <- read_excel(ruta_archivo)
+```
+
+```{r, eval=T, include=F}
+library(ggplot2)
+library(dplyr)
+```
+# **1). Limpieza de Datos**
+```{r, }
+
+library(dplyr)
+
+datos <- datos %>%
+  filter(`PLAN 4064` == 'SI') %>%
+  mutate(APROBARON = ifelse(CALIFICACIÓN == 'SP', 1, 0),
+         NO_APROBARON = ifelse(CALIFICACIÓN == 'NS', 1, 0)) %>%
+  mutate(PRERREQUISITOS = ifelse(!is.na(PREREQUISITO1_COD) | !is.na(PREREQUISITO2_COD), 1, 0)) %>%
+  mutate(TOTAL_MATRICULADOS = n())  # Calcula el total de matriculados en el conjunto de datos
+
+#Eliminar columnas no necesarias
+
+datos <- select(datos, -c(DEPARTAMENTO_DEDICACION,`CRÉDITOS TEÓRICOS`,PREREQUISITO1_COD,PREREQUISITO1_ASIGNATURA,
+                          PREREQUISITO2_ASIGNATURA,`NOTA DEFINITIVA PREREQUISITO 1`,`NOTA DEFINITIVA PREREQUISITO 2`,GRUPO,
+                          DESCRIPCIÓN, `DEPARTAMENTO PROFESOR`,`DOCUMENTO DOCENTE`, `PRIMER APELLIDO DOCENTE`,`SEGUNDO APELLIDO DOCENTE`,
+                          `NOMBRE DOCENTE`,`PRIMER APELLIDO`, `SEGUNDO APELLIDO`, NOMBRE,GÉNERO, NIVEL, `TIPO INGRESO`,SUBACCESO,
+                          `NOTAS PRIMER CORTE`, `FALLAS PRIMER CORTE`, `NOTAS SEGUNDO CORTE`,`FALLAS SEGUNDO CORTE`,
+                          `PROMEDIO PARCIAL`, `NOTAS EXAMEN`,`FALLAS EXAMEN`,`PORCENTAJE FALLAS`,`PERDIDA FALLAS`,`ASIGNATURA ANULADA`,`PROMEDIO ACUMULADO`))
+
+#FILTRO POR ASIGNATURA
+
+library(dplyr)
+library(stringr)
+
+PI <- datos %>%
+  filter(CÓDIGO == 43390898) %>%
+  mutate(PERIODO = case_when(
+    str_sub(PERIODO, 6, 7) == "01" ~ paste(str_sub(PERIODO, 1, 4), "01"),
+    str_sub(PERIODO, 6, 7) == "02" ~ paste(str_sub(PERIODO, 1, 4), "02")
+  ))
+
+```
+
+```{r, }
+tabla_total_PI<- PI%>%
+  group_by(PERIODO)%>%
+  summarise(TOTAL_MATRICULADOS=n())
+print(tabla_total_PI)
+```
+
+# **2).Visualización de la Serie**
+
+```{r, }
+ggplot(tabla_total_PI, aes(x = as.factor(PERIODO), y = TOTAL_MATRICULADOS)) +
+  geom_line(group = 1) +
+  geom_point()
+  labs(title = "Evolución del Total de Matriculados por Semestre",
+       x = "Semestre",
+       y = "Total de Matriculados") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  
+
+
+```
+
+
+# **3).Descomposición de la Serie**
+```{r, echo=FALSE}
+#Verificación Datos
+library(forecast)
+ts_datos <- ts(tabla_total_PI$TOTAL_MATRICULADOS, frequency = 2, start = c(2018, 1))
+```
+
+```{r, echo=FALSE}
+
+#Descomponer serie
+
+descomp <- decompose(ts_datos, type = "multiplicative")
+
+plot(descomp)
+```
+
+# **4).Prueba del modelo**
+
+# **Modelo Holt Winters**
+
+```{r}
+library(forecast)
+
+hw_model <- HoltWinters(ts_datos, seasonal = "multiplicative")
+
+summary(hw_model)
+
+```
+
+
+```{r}
+# Hacer pronósticos con el modelo de Holt-Winters
+
+hw_prediccion <- forecast(hw_model, h = 1)
+
+# Graficar los pronósticos
+plot(hw_prediccion)
+
+# Revisar los residuos
+residuos_hw <- residuals(hw_model)
+
+# Graficar los residuos
+plot(residuos_hw)
+abline(h = 0, col = 'red')
+
+hist(residuos_hw, breaks = 'Sturges', freq = FALSE)
+lines(density(residuos_hw), col = 'blue')
+
+# Realizar una prueba de autocorrelación en los residuos para buscar patrones no explicados
+Box.test(residuos_hw, lag = length(residuos_hw)/2, type = "Ljung-Box")
+
+
+# Q-Q plot para evaluar la normalidad de los residuos
+qqnorm(residuos_hw)
+qqline(residuos_hw, col = 'red')
+    
+```
+```{r}
+accuracy(hw_prediccion )
+```
+<b style = 'color : cyan; font-size: 50px;'>
+PREDICCIÓN 1</b>
+
+```{r, echo=FALSE}
+print(round(hw_prediccion$mean))
+```
+
+
+# **SARIMA**
+
+```{r}
+library(forecast)
+
+
+# Ajustar el modelo SARIMA automáticamente
+sarima_model <- auto.arima(ts_datos, seasonal = TRUE, stepwise = FALSE, approximation = FALSE)
+
+# Ver el resumen del modelo
+summary(sarima_model)
+
+# Hacer pronósticos con el modelo SARIMA
+sarima_forecast <- forecast(sarima_model, h = 1) # Puedes cambiar 'h' por el número de periodos que quieres predecir
+plot(sarima_forecast)
+
+# Revisar los residuos
+residuos_sarima <- residuals(sarima_model)
+plot(residuos_sarima)
+abline(h = 0, col = 'red')
+
+# Verificar normalidad y ausencia de autocorrelación
+hist(residuos_sarima, breaks = 'Sturges', freq = FALSE)
+lines(density(residuos_sarima), col = 'blue')
+
+qqnorm(residuos_sarima)
+qqline(residuos_sarima, col = 'red')
+
+Box.test(residuos_sarima, lag = length(residuos_sarima)/2, type = "Ljung-Box")
+```
+
+<b style = 'color : cyan; font-size: 50px;'>
+PREDICCIÓN 2</b>
+
+```{r, echo=FALSE}
+print(round(sarima_forecast$mean))
+```
+
+
+---
+title: "SERIES DE TIEMPO"
+author: "Practica de Ingeniería 2"
+date: "Abril 2024"
+output:
+  prettydoc::html_pretty:
+    theme: architect
+    highlight: github
+    float: true
+    toc: true
+---
+```{r, eval=T, include=F}
+library(ggplot2)
+```
+
+```{r, eval=T, include=F}
+library(readxl)
+ruta_archivo <- "C:/Users/usuarioa/Downloads/BASE ESTUDIANTES SISTEMAS V5.xlsx"
+datos <- read_excel(ruta_archivo)
+```
+
+```{r, eval=T, include=F}
+library(ggplot2)
+library(dplyr)
+```
+# **1). Limpieza de Datos**
+```{r, }
+
+library(dplyr)
+
+datos <- datos %>%
+  filter(`PLAN 4064` == 'SI') %>%
+  mutate(APROBARON = ifelse(CALIFICACIÓN == 'SP', 1, 0),
+         NO_APROBARON = ifelse(CALIFICACIÓN == 'NS', 1, 0)) %>%
+  mutate(PRERREQUISITOS = ifelse(!is.na(PREREQUISITO1_COD) | !is.na(PREREQUISITO2_COD), 1, 0)) %>%
+  mutate(TOTAL_MATRICULADOS = n())  # Calcula el total de matriculados en el conjunto de datos
+
+#Eliminar columnas no necesarias
+
+datos <- select(datos, -c(DEPARTAMENTO_DEDICACION,`CRÉDITOS TEÓRICOS`,PREREQUISITO1_COD,PREREQUISITO1_ASIGNATURA,
+                          PREREQUISITO2_ASIGNATURA,`NOTA DEFINITIVA PREREQUISITO 1`,`NOTA DEFINITIVA PREREQUISITO 2`,GRUPO,
+                          DESCRIPCIÓN, `DEPARTAMENTO PROFESOR`,`DOCUMENTO DOCENTE`, `PRIMER APELLIDO DOCENTE`,`SEGUNDO APELLIDO DOCENTE`,
+                          `NOMBRE DOCENTE`,`PRIMER APELLIDO`, `SEGUNDO APELLIDO`, NOMBRE,GÉNERO, NIVEL, `TIPO INGRESO`,SUBACCESO,
+                          `NOTAS PRIMER CORTE`, `FALLAS PRIMER CORTE`, `NOTAS SEGUNDO CORTE`,`FALLAS SEGUNDO CORTE`,
+                          `PROMEDIO PARCIAL`, `NOTAS EXAMEN`,`FALLAS EXAMEN`,`PORCENTAJE FALLAS`,`PERDIDA FALLAS`,`ASIGNATURA ANULADA`,`PROMEDIO ACUMULADO`))
+
+#FILTRO POR ASIGNATURA
+
+library(dplyr)
+library(stringr)
+
+PII <- datos %>%
+  filter(CÓDIGO == 43390899) %>%
+  mutate(PERIODO = case_when(
+    str_sub(PERIODO, 6, 7) == "01" ~ paste(str_sub(PERIODO, 1, 4), "01"),
+    str_sub(PERIODO, 6, 7) == "02" ~ paste(str_sub(PERIODO, 1, 4), "02")
+  ))
+
+```
+
+```{r, }
+tabla_total_PII<- PII%>%
+  group_by(PERIODO)%>%
+  summarise(TOTAL_MATRICULADOS=n())
+print(tabla_total_PII)
+```
+
+# **2).Visualización de la Serie**
+
+```{r, }
+ggplot(tabla_total_PII, aes(x = as.factor(PERIODO), y = TOTAL_MATRICULADOS)) +
+  geom_line(group = 1) +
+  geom_point()
+  labs(title = "Evolución del Total de Matriculados por Semestre",
+       x = "Semestre",
+       y = "Total de Matriculados") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  
+
+
+```
+
+
+# **3).Descomposición de la Serie**
+```{r, echo=FALSE}
+#Verificación Datos
+library(forecast)
+ts_datos <- ts(tabla_total_PII$TOTAL_MATRICULADOS, frequency = 2, start = c(2018, 2))
+```
+
+```{r, echo=FALSE}
+
+#Descomponer serie
+
+descomp <- decompose(ts_datos, type = "multiplicative")
+
+plot(descomp)
+```
+
+# **4).Prueba del modelo**
+
+# **Modelo Holt Winters**
+
+```{r}
+library(forecast)
+
+hw_model <- HoltWinters(ts_datos, seasonal = "multiplicative")
+
+summary(hw_model)
+
+```
+
+
+```{r}
+# Hacer pronósticos con el modelo de Holt-Winters
+
+hw_prediccion <- forecast(hw_model, h = 1)
+
+# Graficar los pronósticos
+plot(hw_prediccion)
+
+# Revisar los residuos
+residuos_hw <- residuals(hw_model)
+
+# Graficar los residuos
+plot(residuos_hw)
+abline(h = 0, col = 'red')
+
+hist(residuos_hw, breaks = 'Sturges', freq = FALSE)
+lines(density(residuos_hw), col = 'blue')
+
+# Realizar una prueba de autocorrelación en los residuos para buscar patrones no explicados
+Box.test(residuos_hw, lag = length(residuos_hw)/2, type = "Ljung-Box")
+
+
+# Q-Q plot para evaluar la normalidad de los residuos
+qqnorm(residuos_hw)
+qqline(residuos_hw, col = 'red')
+    
+```
+```{r}
+accuracy(hw_prediccion )
+```
+<b style = 'color : cyan; font-size: 50px;'>
+PREDICCIÓN 1</b>
+
+```{r, echo=FALSE}
+print(round(hw_prediccion$mean))
+```
+
+
+# **SARIMA**
+
+```{r}
+library(forecast)
+
+
+# Ajustar el modelo SARIMA automáticamente
+sarima_model <- auto.arima(ts_datos, seasonal = TRUE, stepwise = FALSE, approximation = FALSE)
+
+# Ver el resumen del modelo
+summary(sarima_model)
+
+# Hacer pronósticos con el modelo SARIMA
+sarima_forecast <- forecast(sarima_model, h = 1) # Puedes cambiar 'h' por el número de periodos que quieres predecir
+plot(sarima_forecast)
+
+# Revisar los residuos
+residuos_sarima <- residuals(sarima_model)
+plot(residuos_sarima)
+abline(h = 0, col = 'red')
+
+# Verificar normalidad y ausencia de autocorrelación
+hist(residuos_sarima, breaks = 'Sturges', freq = FALSE)
+lines(density(residuos_sarima), col = 'blue')
+
+qqnorm(residuos_sarima)
+qqline(residuos_sarima, col = 'red')
+
+Box.test(residuos_sarima, lag = length(residuos_sarima)/2, type = "Ljung-Box")
+```
+
+<b style = 'color : cyan; font-size: 50px;'>
+PREDICCIÓN 2</b>
+
+```{r, echo=FALSE}
+print(round(sarima_forecast$mean))
+```
+
+
+---
+title: "SERIES DE TIEMPO"
+author: "Practica de Ingeniería 3"
+date: "Abril 2024"
+output:
+  prettydoc::html_pretty:
+    theme: architect
+    highlight: github
+    float: true
+    toc: true
+---
+```{r, eval=T, include=F}
+library(ggplot2)
+```
+
+```{r, eval=T, include=F}
+library(readxl)
+ruta_archivo <- "C:/Users/usuarioa/Downloads/BASE ESTUDIANTES SISTEMAS V5.xlsx"
+datos <- read_excel(ruta_archivo)
+```
+
+```{r, eval=T, include=F}
+library(ggplot2)
+library(dplyr)
+```
+# **1). Limpieza de Datos**
+```{r, }
+
+library(dplyr)
+
+datos <- datos %>%
+  filter(`PLAN 4064` == 'SI') %>%
+  mutate(APROBARON = ifelse(CALIFICACIÓN == 'SP', 1, 0),
+         NO_APROBARON = ifelse(CALIFICACIÓN == 'NS', 1, 0)) %>%
+  mutate(PRERREQUISITOS = ifelse(!is.na(PREREQUISITO1_COD) | !is.na(PREREQUISITO2_COD), 1, 0)) %>%
+  mutate(TOTAL_MATRICULADOS = n())  # Calcula el total de matriculados en el conjunto de datos
+
+#Eliminar columnas no necesarias
+
+datos <- select(datos, -c(DEPARTAMENTO_DEDICACION,`CRÉDITOS TEÓRICOS`,PREREQUISITO1_COD,PREREQUISITO1_ASIGNATURA,
+                          PREREQUISITO2_ASIGNATURA,`NOTA DEFINITIVA PREREQUISITO 1`,`NOTA DEFINITIVA PREREQUISITO 2`,GRUPO,
+                          DESCRIPCIÓN, `DEPARTAMENTO PROFESOR`,`DOCUMENTO DOCENTE`, `PRIMER APELLIDO DOCENTE`,`SEGUNDO APELLIDO DOCENTE`,
+                          `NOMBRE DOCENTE`,`PRIMER APELLIDO`, `SEGUNDO APELLIDO`, NOMBRE,GÉNERO, NIVEL, `TIPO INGRESO`,SUBACCESO,
+                          `NOTAS PRIMER CORTE`, `FALLAS PRIMER CORTE`, `NOTAS SEGUNDO CORTE`,`FALLAS SEGUNDO CORTE`,
+                          `PROMEDIO PARCIAL`, `NOTAS EXAMEN`,`FALLAS EXAMEN`,`PORCENTAJE FALLAS`,`PERDIDA FALLAS`,`ASIGNATURA ANULADA`,`PROMEDIO ACUMULADO`))
+
+#FILTRO POR ASIGNATURA
+
+library(dplyr)
+library(stringr)
+
+PIII <- datos %>%
+  filter(CÓDIGO == 43390857) %>%
+  mutate(PERIODO = case_when(
+    str_sub(PERIODO, 6, 7) == "01" ~ paste(str_sub(PERIODO, 1, 4), "01"),
+    str_sub(PERIODO, 6, 7) == "02" ~ paste(str_sub(PERIODO, 1, 4), "02")
+  ))
+
+```
+
+```{r, }
+tabla_total_PIII<- PIII%>%
+  group_by(PERIODO)%>%
+  summarise(TOTAL_MATRICULADOS=n())
+print(tabla_total_PIII)
+```
+
+# **2).Visualización de la Serie**
+
+```{r, }
+ggplot(tabla_total_PIII, aes(x = as.factor(PERIODO), y = TOTAL_MATRICULADOS)) +
+  geom_line(group = 1) +
+  geom_point()
+  labs(title = "Evolución del Total de Matriculados por Semestre",
+       x = "Semestre",
+       y = "Total de Matriculados") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  
+
+
+```
+
+
+# **3).Descomposición de la Serie**
+```{r, echo=FALSE}
+#Verificación Datos
+library(forecast)
+ts_datos <- ts(tabla_total_PIII$TOTAL_MATRICULADOS, frequency = 2, start = c(2019, 2))
+```
+
+```{r, echo=FALSE}
+
+#Descomponer serie
+
+descomp <- decompose(ts_datos, type = "multiplicative")
+
+plot(descomp)
+```
+
+# **4).Prueba del modelo**
+
+# **Modelo Holt Winters**
+
+```{r}
+library(forecast)
+
+hw_model <- HoltWinters(ts_datos, seasonal = "multiplicative")
+
+summary(hw_model)
+
+```
+
+
+```{r}
+# Hacer pronósticos con el modelo de Holt-Winters
+
+hw_prediccion <- forecast(hw_model, h = 1)
+
+# Graficar los pronósticos
+plot(hw_prediccion)
+
+# Revisar los residuos
+residuos_hw <- residuals(hw_model)
+
+# Graficar los residuos
+plot(residuos_hw)
+abline(h = 0, col = 'red')
+
+hist(residuos_hw, breaks = 'Sturges', freq = FALSE)
+lines(density(residuos_hw), col = 'blue')
+
+# Realizar una prueba de autocorrelación en los residuos para buscar patrones no explicados
+Box.test(residuos_hw, lag = length(residuos_hw)/2, type = "Ljung-Box")
+
+
+# Q-Q plot para evaluar la normalidad de los residuos
+qqnorm(residuos_hw)
+qqline(residuos_hw, col = 'red')
+    
+```
+```{r}
+accuracy(hw_prediccion )
+```
+<b style = 'color : cyan; font-size: 50px;'>
+PREDICCIÓN 1</b>
+
+```{r, echo=FALSE}
+print(round(hw_prediccion$mean))
+```
+
+
+# **SARIMA**
+
+```{r}
+library(forecast)
+
+
+# Ajustar el modelo SARIMA automáticamente
+sarima_model <- auto.arima(ts_datos, seasonal = TRUE, stepwise = FALSE, approximation = FALSE)
+
+# Ver el resumen del modelo
+summary(sarima_model)
+
+# Hacer pronósticos con el modelo SARIMA
+sarima_forecast <- forecast(sarima_model, h = 1) # Puedes cambiar 'h' por el número de periodos que quieres predecir
+plot(sarima_forecast)
+
+# Revisar los residuos
+residuos_sarima <- residuals(sarima_model)
+plot(residuos_sarima)
+abline(h = 0, col = 'red')
+
+# Verificar normalidad y ausencia de autocorrelación
+hist(residuos_sarima, breaks = 'Sturges', freq = FALSE)
+lines(density(residuos_sarima), col = 'blue')
+
+qqnorm(residuos_sarima)
+qqline(residuos_sarima, col = 'red')
+
+Box.test(residuos_sarima, lag = length(residuos_sarima)/2, type = "Ljung-Box")
+```
+
+<b style = 'color : cyan; font-size: 50px;'>
+PREDICCIÓN 2</b>
+
+```{r, echo=FALSE}
+print(round(sarima_forecast$mean))
+```
+
+
+---
+title: "SERIES DE TIEMPO"
+author: "Bases de Datos"
+date: "Abril 2024"
+output:
+  prettydoc::html_pretty:
+    theme: architect
+    highlight: github
+    float: true
+    toc: true
+---
+```{r, eval=T, include=F}
+library(ggplot2)
+```
+
+```{r, eval=T, include=F}
+library(readxl)
+ruta_archivo <- "C:/Users/usuarioa/Downloads/BASE ESTUDIANTES SISTEMAS V5.xlsx"
+datos <- read_excel(ruta_archivo)
+```
+
+```{r, eval=T, include=F}
+library(ggplot2)
+library(dplyr)
+```
+# **1). Limpieza de Datos**
+```{r, }
+
+library(dplyr)
+
+datos <- datos %>%
+  filter(`PLAN 4064` == 'SI') %>%
+  mutate(APROBARON = ifelse(CALIFICACIÓN == 'SP', 1, 0),
+         NO_APROBARON = ifelse(CALIFICACIÓN == 'NS', 1, 0)) %>%
+  mutate(PRERREQUISITOS = ifelse(!is.na(PREREQUISITO1_COD) | !is.na(PREREQUISITO2_COD), 1, 0)) %>%
+  mutate(TOTAL_MATRICULADOS = n())  # Calcula el total de matriculados en el conjunto de datos
+
+#Eliminar columnas no necesarias
+
+datos <- select(datos, -c(DEPARTAMENTO_DEDICACION,`CRÉDITOS TEÓRICOS`,PREREQUISITO1_COD,PREREQUISITO1_ASIGNATURA,
+                          PREREQUISITO2_ASIGNATURA,`NOTA DEFINITIVA PREREQUISITO 1`,`NOTA DEFINITIVA PREREQUISITO 2`,GRUPO,
+                          DESCRIPCIÓN, `DEPARTAMENTO PROFESOR`,`DOCUMENTO DOCENTE`, `PRIMER APELLIDO DOCENTE`,`SEGUNDO APELLIDO DOCENTE`,
+                          `NOMBRE DOCENTE`,`PRIMER APELLIDO`, `SEGUNDO APELLIDO`, NOMBRE,GÉNERO, NIVEL, `TIPO INGRESO`,SUBACCESO,
+                          `NOTAS PRIMER CORTE`, `FALLAS PRIMER CORTE`, `NOTAS SEGUNDO CORTE`,`FALLAS SEGUNDO CORTE`,
+                          `PROMEDIO PARCIAL`, `NOTAS EXAMEN`,`FALLAS EXAMEN`,`PORCENTAJE FALLAS`,`PERDIDA FALLAS`,`ASIGNATURA ANULADA`,`PROMEDIO ACUMULADO`))
+
+#FILTRO POR ASIGNATURA
+
+library(dplyr)
+library(stringr)
+
+PIV <- datos %>%
+  filter(CÓDIGO == 43390861) %>%
+  mutate(PERIODO = case_when(
+    str_sub(PERIODO, 6, 7) == "01" ~ paste(str_sub(PERIODO, 1, 4), "01"),
+    str_sub(PERIODO, 6, 7) == "02" ~ paste(str_sub(PERIODO, 1, 4), "02")
+  ))
+
+```
+
+```{r, }
+tabla_total_PIV<- PIV%>%
+  group_by(PERIODO)%>%
+  summarise(TOTAL_MATRICULADOS=n())
+print(tabla_total_PIV)
+```
+
+# **2).Visualización de la Serie**
+
+```{r, }
+ggplot(tabla_total_PIV, aes(x = as.factor(PERIODO), y = TOTAL_MATRICULADOS)) +
+  geom_line(group = 1) +
+  geom_point()
+  labs(title = "Evolución del Total de Matriculados por Semestre",
+       x = "Semestre",
+       y = "Total de Matriculados") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  
+
+
+```
+
+
+# **3).Descomposición de la Serie**
+```{r, echo=FALSE}
+#Verificación Datos
+library(forecast)
+ts_datos <- ts(tabla_total_PIV$TOTAL_MATRICULADOS, frequency = 2, start = c(2019, 1))
+```
+
+```{r, echo=FALSE}
+
+#Descomponer serie
+
+descomp <- decompose(ts_datos, type = "multiplicative")
+
+plot(descomp)
+```
+
+# **4).Prueba del modelo**
+
+# **Modelo Holt Winters**
+
+```{r}
+library(forecast)
+
+hw_model <- HoltWinters(ts_datos, seasonal = "multiplicative")
+
+summary(hw_model)
+
+```
+
+
+```{r}
+# Hacer pronósticos con el modelo de Holt-Winters
+
+hw_prediccion <- forecast(hw_model, h = 1)
+
+# Graficar los pronósticos
+plot(hw_prediccion)
+
+# Revisar los residuos
+residuos_hw <- residuals(hw_model)
+
+# Graficar los residuos
+plot(residuos_hw)
+abline(h = 0, col = 'red')
+
+hist(residuos_hw, breaks = 'Sturges', freq = FALSE)
+lines(density(residuos_hw), col = 'blue')
+
+# Realizar una prueba de autocorrelación en los residuos para buscar patrones no explicados
+Box.test(residuos_hw, lag = length(residuos_hw)/2, type = "Ljung-Box")
+
+
+# Q-Q plot para evaluar la normalidad de los residuos
+qqnorm(residuos_hw)
+qqline(residuos_hw, col = 'red')
+    
+```
+```{r}
+accuracy(hw_prediccion )
+```
+<b style = 'color : cyan; font-size: 50px;'>
+PREDICCIÓN 1</b>
+
+```{r, echo=FALSE}
+print(round(hw_prediccion$mean))
+```
+
+
+# **SARIMA**
+
+```{r}
+library(forecast)
+
+
+# Ajustar el modelo SARIMA automáticamente
+sarima_model <- auto.arima(ts_datos, seasonal = TRUE, stepwise = FALSE, approximation = FALSE)
+
+# Ver el resumen del modelo
+summary(sarima_model)
+
+# Hacer pronósticos con el modelo SARIMA
+sarima_forecast <- forecast(sarima_model, h = 1) # Puedes cambiar 'h' por el número de periodos que quieres predecir
+plot(sarima_forecast)
+
+# Revisar los residuos
+residuos_sarima <- residuals(sarima_model)
+plot(residuos_sarima)
+abline(h = 0, col = 'red')
+
+# Verificar normalidad y ausencia de autocorrelación
+hist(residuos_sarima, breaks = 'Sturges', freq = FALSE)
+lines(density(residuos_sarima), col = 'blue')
+
+qqnorm(residuos_sarima)
+qqline(residuos_sarima, col = 'red')
+
+Box.test(residuos_sarima, lag = length(residuos_sarima)/2, type = "Ljung-Box")
+```
+
+<b style = 'color : cyan; font-size: 50px;'>
+PREDICCIÓN 2</b>
+
+```{r, echo=FALSE}
+print(round(sarima_forecast$mean))
+```
+
+
+---
+title: "SERIES DE TIEMPO"
+author: "Practica de Ingeniería 5"
+date: "Abril 2024"
+output:
+  prettydoc::html_pretty:
+    theme: architect
+    highlight: github
+    float: true
+    toc: true
+---
+```{r, eval=T, include=F}
+library(ggplot2)
+```
+
+```{r, eval=T, include=F}
+library(readxl)
+ruta_archivo <- "C:/Users/usuarioa/Downloads/BASE ESTUDIANTES SISTEMAS V5.xlsx"
+datos <- read_excel(ruta_archivo)
+```
+
+```{r, eval=T, include=F}
+library(ggplot2)
+library(dplyr)
+```
+# **1). Limpieza de Datos**
+```{r, }
+
+library(dplyr)
+
+datos <- datos %>%
+  filter(`PLAN 4064` == 'SI') %>%
+  mutate(APROBARON = ifelse(CALIFICACIÓN == 'SP', 1, 0),
+         NO_APROBARON = ifelse(CALIFICACIÓN == 'NS', 1, 0)) %>%
+  mutate(PRERREQUISITOS = ifelse(!is.na(PREREQUISITO1_COD) | !is.na(PREREQUISITO2_COD), 1, 0)) %>%
+  mutate(TOTAL_MATRICULADOS = n())  # Calcula el total de matriculados en el conjunto de datos
+
+#Eliminar columnas no necesarias
+
+datos <- select(datos, -c(DEPARTAMENTO_DEDICACION,`CRÉDITOS TEÓRICOS`,PREREQUISITO1_COD,PREREQUISITO1_ASIGNATURA,
+                          PREREQUISITO2_ASIGNATURA,`NOTA DEFINITIVA PREREQUISITO 1`,`NOTA DEFINITIVA PREREQUISITO 2`,GRUPO,
+                          DESCRIPCIÓN, `DEPARTAMENTO PROFESOR`,`DOCUMENTO DOCENTE`, `PRIMER APELLIDO DOCENTE`,`SEGUNDO APELLIDO DOCENTE`,
+                          `NOMBRE DOCENTE`,`PRIMER APELLIDO`, `SEGUNDO APELLIDO`, NOMBRE,GÉNERO, NIVEL, `TIPO INGRESO`,SUBACCESO,
+                          `NOTAS PRIMER CORTE`, `FALLAS PRIMER CORTE`, `NOTAS SEGUNDO CORTE`,`FALLAS SEGUNDO CORTE`,
+                          `PROMEDIO PARCIAL`, `NOTAS EXAMEN`,`FALLAS EXAMEN`,`PORCENTAJE FALLAS`,`PERDIDA FALLAS`,`ASIGNATURA ANULADA`,`PROMEDIO ACUMULADO`))
+
+#FILTRO POR ASIGNATURA
+
+library(dplyr)
+library(stringr)
+
+PV <- datos %>%
+  filter(CÓDIGO == 43390865) %>%
+  mutate(PERIODO = case_when(
+    str_sub(PERIODO, 6, 7) == "01" ~ paste(str_sub(PERIODO, 1, 4), "01"),
+    str_sub(PERIODO, 6, 7) == "02" ~ paste(str_sub(PERIODO, 1, 4), "02")
+  ))
+
+```
+
+```{r, }
+tabla_total_PV<- PV%>%
+  group_by(PERIODO)%>%
+  summarise(TOTAL_MATRICULADOS=n())
+print(tabla_total_PV)
+```
+
+# **2).Visualización de la Serie**
+
+```{r, }
+ggplot(tabla_total_PV, aes(x = as.factor(PERIODO), y = TOTAL_MATRICULADOS)) +
+  geom_line(group = 1) +
+  geom_point()
+  labs(title = "Evolución del Total de Matriculados por Semestre",
+       x = "Semestre",
+       y = "Total de Matriculados") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  
+
+
+```
+
+
+# **3).Descomposición de la Serie**
+```{r, echo=FALSE}
+#Verificación Datos
+library(forecast)
+ts_datos <- ts(tabla_total_PV$TOTAL_MATRICULADOS, frequency = 2, start = c(2021, 1))
+```
+
+```{r, echo=FALSE}
+
+#Descomponer serie
+
+descomp <- decompose(ts_datos, type = "multiplicative")
+
+plot(descomp)
+```
+
+# **4).Prueba del modelo**
+
+# **Modelo Holt Winters**
+
+```{r}
+library(forecast)
+
+hw_model <- HoltWinters(ts_datos, seasonal = "multiplicative")
+
+summary(hw_model)
+
+```
+
+
+```{r}
+# Hacer pronósticos con el modelo de Holt-Winters
+
+hw_prediccion <- forecast(hw_model, h = 1)
+
+# Graficar los pronósticos
+plot(hw_prediccion)
+
+# Revisar los residuos
+residuos_hw <- residuals(hw_model)
+
+# Graficar los residuos
+plot(residuos_hw)
+abline(h = 0, col = 'red')
+
+hist(residuos_hw, breaks = 'Sturges', freq = FALSE)
+lines(density(residuos_hw), col = 'blue')
+
+# Realizar una prueba de autocorrelación en los residuos para buscar patrones no explicados
+Box.test(residuos_hw, lag = length(residuos_hw)/2, type = "Ljung-Box")
+
+
+# Q-Q plot para evaluar la normalidad de los residuos
+qqnorm(residuos_hw)
+qqline(residuos_hw, col = 'red')
+    
+```
+```{r}
+accuracy(hw_prediccion )
+```
+<b style = 'color : cyan; font-size: 50px;'>
+PREDICCIÓN 1</b>
+
+```{r, echo=FALSE}
+print(round(hw_prediccion$mean))
+```
+
+
+# **SARIMA**
+
+```{r}
+library(forecast)
+
+
+# Ajustar el modelo SARIMA automáticamente
+sarima_model <- auto.arima(ts_datos, seasonal = TRUE, stepwise = FALSE, approximation = FALSE)
+
+# Ver el resumen del modelo
+summary(sarima_model)
+
+# Hacer pronósticos con el modelo SARIMA
+sarima_forecast <- forecast(sarima_model, h = 1) # Puedes cambiar 'h' por el número de periodos que quieres predecir
+plot(sarima_forecast)
+
+# Revisar los residuos
+residuos_sarima <- residuals(sarima_model)
+plot(residuos_sarima)
+abline(h = 0, col = 'red')
+
+# Verificar normalidad y ausencia de autocorrelación
+hist(residuos_sarima, breaks = 'Sturges', freq = FALSE)
+lines(density(residuos_sarima), col = 'blue')
+
+qqnorm(residuos_sarima)
+qqline(residuos_sarima, col = 'red')
+
+Box.test(residuos_sarima, lag = length(residuos_sarima)/2, type = "Ljung-Box")
+```
+
+<b style = 'color : cyan; font-size: 50px;'>
+PREDICCIÓN 2</b>
+
+```{r, echo=FALSE}
+print(round(sarima_forecast$mean))
+```
+
